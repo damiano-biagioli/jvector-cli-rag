@@ -14,7 +14,7 @@ import java.util.List;
  *   <li>se esiste una cache valida in {@code <directory>/.jvector-cache} la carica da disco,
  *       altrimenti calcola gli embedding, costruisce l'indice JVector e lo salva in cache;</li>
  *   <li>avvia la chat: ogni domanda viene convertita in embedding, si recuperano i chunk
- *       piu' simili con JVector e si interroga il modello locale via Ollama.</li>
+ *       piu' simili con JVector e si interroga il modello locale (Ollama o llama.cpp).</li>
  * </ol>
  *
  * <p>Uso:</p>
@@ -24,12 +24,15 @@ import java.util.List;
  *
  * Opzioni:
  * <ul>
- *   <li>{@code --ollama-model <nome>}  modello Ollama da usare (default: llama3.2)</li>
- *   <li>{@code --ollama-url <url>}     URL del server Ollama (default: http://localhost:11434)</li>
+ *   <li>{@code --backend ollama|llamacpp}  backend LLM per la generazione (default: ollama)</li>
+ *   <li>{@code --ollama-model <nome>}  modello richiesto al backend (default: llama3.2;
+ *       ignorato da llama-server, che serve il modello caricato con -m)</li>
+ *   <li>{@code --ollama-url <url>}     URL del server LLM (default: http://localhost:11434
+ *       con ollama, http://localhost:8080 con llamacpp)</li>
  *   <li>{@code --top-k <n>}            chunk recuperati per domanda (default: 10)</li>
  *   <li>{@code --model-dir <dir>}      dove scaricare il modello di embedding (default: ./models)</li>
  *   <li>{@code --rebuild}              ignora la cache e ricostruisce l'indice da zero</li>
- *   <li>{@code --no-llm}               solo retrieval, nessuna chiamata a Ollama (utile per test)</li>
+ *   <li>{@code --no-llm}               solo retrieval, nessuna chiamata al LLM (utile per test)</li>
  * </ul>
  */
 public class Main {
@@ -38,16 +41,19 @@ public class Main {
         // --- parsing degli argomenti ---
         Path docsDir = null;
         Path modelDir = Path.of("models");
-        String ollamaUrl = "http://localhost:11434";
-        String ollamaModel = "llama3.2";
+        String backend = "ollama";
+        // null = non specificato: il default dipende dal backend (deciso dopo il parsing)
+        String llmUrl = null;
+        String llmModel = "llama3.2";
         int topK = 10;
         boolean noLlm = false;
         boolean rebuild = false;
 
         for (int i = 0; i < args.length; i++) {
             switch (args[i]) {
-                case "--ollama-model" -> ollamaModel = args[++i];
-                case "--ollama-url" -> ollamaUrl = args[++i];
+                case "--backend" -> backend = args[++i];
+                case "--ollama-model" -> llmModel = args[++i];
+                case "--ollama-url" -> llmUrl = args[++i];
                 case "--top-k" -> topK = Integer.parseInt(args[++i]);
                 case "--model-dir" -> modelDir = Path.of(args[++i]);
                 case "--no-llm" -> noLlm = true;
@@ -60,6 +66,15 @@ public class Main {
                     docsDir = Path.of(args[i]);
                 }
             }
+        }
+
+        if (!backend.equals("ollama") && !backend.equals("llamacpp")) {
+            usage();
+            return;
+        }
+        // URL di default del backend: 11434 per Ollama, 8080 per llama-server
+        if (llmUrl == null) {
+            llmUrl = backend.equals("llamacpp") ? "http://localhost:8080" : "http://localhost:11434";
         }
 
         if (docsDir == null || !Files.isDirectory(docsDir)) {
@@ -125,20 +140,25 @@ public class Main {
             System.out.println("Indice pronto e salvato in cache.");
         }
 
-        // --- 4. chat RAG ---
-        OllamaClient ollama = new OllamaClient(ollamaUrl, ollamaModel);
-        new ChatLoop(embeddings, index, ollama, topK, noLlm).run();
+        // --- 4. chat RAG: il client concreto dipende dal backend scelto ---
+        LlmClient llm = backend.equals("llamacpp")
+                ? new LlamaCppClient(llmUrl, llmModel)
+                : new OllamaClient(llmUrl, llmModel);
+        new ChatLoop(embeddings, index, llm, topK, noLlm).run();
     }
 
     private static void usage() {
         System.out.println("""
                 Uso: java -jar jvector-rag-1.0.0.jar <directory-docs> [opzioni]
-                  --ollama-model <nome>   default llama3.2
-                  --ollama-url <url>      default http://localhost:11434
-                  --top-k <n>             default 10
-                  --model-dir <dir>       default ./models
-                  --rebuild               ignora la cache e ricostruisce l'indice
-                  --no-llm                solo retrieval (nessuna chiamata a Ollama)
+                  --backend ollama|llamacpp   backend LLM (default ollama)
+                  --ollama-model <nome>       modello richiesto al backend (default llama3.2;
+                                              ignorato da llama-server, che usa il modello di -m)
+                  --ollama-url <url>          URL del server LLM (default :11434 con ollama,
+                                              :8080 con llamacpp)
+                  --top-k <n>                 default 10
+                  --model-dir <dir>           default ./models
+                  --rebuild                   ignora la cache e ricostruisce l'indice
+                  --no-llm                    solo retrieval (nessuna chiamata al LLM)
                 """);
     }
 }

@@ -33,7 +33,7 @@
             <artifactId>tokenizers</artifactId>
             <version>0.33.0</version>
         </dependency>
-        <!-- JSON per le chiamate a Ollama -->
+        <!-- JSON per le chiamate HTTP ai backend LLM (Ollama, llama.cpp) -->
         <dependency>
             <groupId>com.google.code.gson</groupId>
             <artifactId>gson</artifactId>

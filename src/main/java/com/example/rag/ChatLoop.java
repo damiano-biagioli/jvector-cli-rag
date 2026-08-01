@@ -13,12 +13,12 @@ import java.util.stream.Collectors;
  *   <li>calcola l'embedding della domanda;</li>
  *   <li>cerca i top-K chunk piu' simili nell'indice JVector e mostra le fonti
  *       (file, punteggio, anteprima) per rendere il retrieval ispezionabile;</li>
- *   <li>costruisce il prompt con il contesto recuperato e lo invia a Ollama;</li>
+ *   <li>costruisce il prompt con il contesto recuperato e lo invia al backend LLM;</li>
  *   <li>stampa la risposta.</li>
  * </ol>
  *
  * Con {@code --no-llm} si ferma al punto 2: utile per verificare la qualita'
- * del retrieval senza dipendere da Ollama.
+ * del retrieval senza dipendere dal backend LLM.
  */
 public class ChatLoop {
 
@@ -35,15 +35,15 @@ public class ChatLoop {
 
     private final EmbeddingModel embeddings;
     private final DocumentIndex index;
-    private final OllamaClient ollama;
+    private final LlmClient llm;
     private final int topK;
     private final boolean noLlm;
 
-    public ChatLoop(EmbeddingModel embeddings, DocumentIndex index, OllamaClient ollama,
+    public ChatLoop(EmbeddingModel embeddings, DocumentIndex index, LlmClient llm,
                     int topK, boolean noLlm) {
         this.embeddings = embeddings;
         this.index = index;
-        this.ollama = ollama;
+        this.llm = llm;
         this.topK = topK;
         this.noLlm = noLlm;
     }
@@ -89,13 +89,14 @@ public class ChatLoop {
             String userMessage = "Contesto:\n" + context + "\n\nDomanda: " + question;
 
             try {
-                String answer = ollama.chat(SYSTEM_PROMPT, userMessage);
+                String answer = llm.chat(SYSTEM_PROMPT, userMessage);
                 System.out.println("\nRisposta:\n" + answer.trim());
             } catch (java.net.ConnectException e) {
-                // errore atteso e gestito: server Ollama spento
-                System.out.println("Errore: Ollama non raggiungibile. Avvialo con 'ollama serve'.");
+                // errore atteso e gestito: server LLM spento
+                System.out.println("Errore: server LLM non raggiungibile. Verifica che sia in"
+                        + " esecuzione (es. 'ollama serve' oppure 'llama-server -m modello.gguf').");
             } catch (Exception e) {
-                System.out.println("Errore chiamando Ollama: " + e.getMessage());
+                System.out.println("Errore chiamando il server LLM: " + e.getMessage());
             }
         }
         System.out.println("Ciao!");
